@@ -21,6 +21,7 @@ def function(name):
 qml = '''import QtQuick
 import QtTest
 TestCase {
+  id: root
   name: "WarningAction"
   property bool busy: false
   property var checkReport: null
@@ -35,6 +36,7 @@ TestCase {
   property var cornerIdents: [null, null, null]
   property var cornerAcks: [false, false, false]
   property var replacement: null
+  QtObject { id: dropdown; property string value: root.transportIdx === 1 ? "ssh" : "local" }
   function commitReplace(dest, transport, ack) { replacement = [dest, transport, ack] }
   function init() {
     busy = false; mode = "new"; step = 1; warnAck = false; replaceDone = false
@@ -69,8 +71,32 @@ TestCase {
   function test_blocksCompletedReplacement() {
     mode = "reentry-corner"; replaceDone = true; continueWarning(); compare(replacement, null)
   }
+  function test_transportBindingSurvivesSelectionAndNextCorner() {
+    transportIdx = 0
+    dropdown.value = "ssh" // real Dropdown does this before its changed signal
+    chooseTransport(dropdown, "ssh")
+    compare(transportIdx, 1)
+    compare(dropdown.value, "ssh")
+    continueWarning()
+    compare(cornerTransports[0], "ssh")
+    compare(transportIdx, 0)
+    compare(dropdown.value, "local")
+    dropdown.value = "ssh"
+    chooseTransport(dropdown, "ssh")
+    compare(transportIdx, 1)
+    transportIdx = 0
+    compare(dropdown.value, "local")
+  }
+  function test_transportBindingRestoresSavedSshCorner() {
+    dropdown.value = "local"
+    chooseTransport(dropdown, "local")
+    cornerTransports = ["ssh", "local", "local"]
+    loadCorner()
+    compare(transportIdx, 1)
+    compare(dropdown.value, "ssh")
+  }
 '''
-qml += "\n".join(function(name) for name in ("continueWarning", "acceptCheckedCorner", "loadCorner"))
+qml += "\n".join(function(name) for name in ("continueWarning", "acceptCheckedCorner", "loadCorner", "chooseTransport"))
 qml += "\n}\n"
 
 with tempfile.TemporaryDirectory(prefix="hecate-warning-qt-") as temporary:

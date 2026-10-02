@@ -240,6 +240,13 @@ Column {
     }
   }
 
+  function chooseTransport(dropdown, value) {
+    transportIdx = value === "ssh" ? 1 : 0
+    // Dropdown assigns its value before emitting changed, breaking the
+    // initial binding. Restore it so Back/next-corner resets stay visible.
+    dropdown.value = Qt.binding(function() { return root.transportIdx === 1 ? "ssh" : "local" })
+  }
+
   onTransportIdxChanged: { checkReport = null; warnAck = false; replaceDone = false }
   onStepChanged: {
     if (step === 4 && mode === "new" && !engineBusy) {
@@ -684,10 +691,10 @@ Column {
     Dropdown {
       id: transportDrop
       width: parent.width
-      value: root.transportIdx === 1 ? Loc.S.transportSsh : Loc.S.transportLocal
-      options: [Loc.S.transportLocal, Loc.S.transportSsh]
+      value: root.transportIdx === 1 ? "ssh" : "local"
+      options: [{value: "local", label: Loc.S.transportLocal}, {value: "ssh", label: Loc.S.transportSsh}]
       enabled: !root.busy
-      onChanged: function(v) { root.transportIdx = v === Loc.S.transportSsh ? 1 : 0 }
+      onChanged: function(v) { root.chooseTransport(transportDrop, v) }
     }
 
     TextField {
@@ -1088,9 +1095,9 @@ Column {
     Dropdown {
       id: rcTransport
       width: parent.width
-      value: root.transportIdx === 1 ? Loc.S.transportSsh : Loc.S.transportLocal
-      options: [Loc.S.transportLocal, Loc.S.transportSsh]
-      onChanged: function(v) { root.transportIdx = v === Loc.S.transportSsh ? 1 : 0 }
+      value: root.transportIdx === 1 ? "ssh" : "local"
+      options: [{value: "local", label: Loc.S.transportLocal}, {value: "ssh", label: Loc.S.transportSsh}]
+      onChanged: function(v) { root.chooseTransport(rcTransport, v) }
       enabled: !root.busy
     }
 
