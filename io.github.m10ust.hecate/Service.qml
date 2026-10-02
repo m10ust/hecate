@@ -585,5 +585,5 @@ Item {
  return ""
  }
 
- Component.onCompleted: console.warn("hecate: service loaded (v" + version + " M4 — engine " + enginePath + ")")
+ Component.onCompleted: console.warn("hecate: service loaded — engine " + enginePath)
 }

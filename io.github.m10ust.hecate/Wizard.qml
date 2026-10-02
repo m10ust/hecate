@@ -5,7 +5,7 @@ import qs.Commons
 import qs.Ui
 import "Strings.js" as Loc
 
-// Hecate wizard — v0.0.6 M5.5. The six steps as real screens, re-enterable.
+// Hecate wizard. The six steps as real screens, re-enterable.
 //
 // LAWS THIS SCREEN OBEYS (M4 brief):
 //   - The wizard writes NOTHING to state.json. It talks to the engine
