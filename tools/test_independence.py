@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "io.github.m10ust.hecate" / "engine"))
 import hecate  # noqa: E402
+import _layout  # noqa: E402  (tools/_layout.py)
 
 PASS, FAIL = 0, []
 
@@ -166,7 +167,7 @@ rep = run(src={"dev": 1},
 check("unknown outranks warn", rep["verdict"] == "unknown", rep["verdict"])
 
 # ---- fixture files run through the same check ------------------------------
-FIX = Path(__file__).resolve().parent.parent / "tools" / "fixtures"
+FIX = _layout.FIXTURES
 for name, expect in [("independence-siblings.json", "warn"),
                      ("independence-one-host.json", "refuse")]:
     with open(FIX / name) as f:
