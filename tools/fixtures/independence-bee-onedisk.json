@@ -1,0 +1,10 @@
+{
+  "name": "the bee: one btrfs disk, two st_dev, zero second disk (addendum §3)",
+  "comment": "Live facts read from beelink 2026-10-01: / is /dev/mapper/root[/@] st_dev 32, /home is /dev/mapper/root[/@home] st_dev 30, ONE filesystem UUID SYNTHETIC, one SYNTHETIC serial SYNTHETIC. The tool must refuse to call the bee's own root disk two corners. This fixture strips the UUIDs to exercise the backing-disk key lane (with UUIDs the UUID lane refuses it already — receipted M3; the seam is the UUID-less read).",
+  "participants": [
+    {"index": "source", "transport": "local",
+     "identity": {"dev": 32, "path": "/home/m4/bridge", "fssource": "/dev/mapper/root[/@]", "fstype": "btrfs", "model": "SYNTHETIC", "serial": "SYNTHETIC"}},
+    {"index": 1, "transport": "local",
+     "identity": {"dev": 30, "path": "/mnt/nothing-else", "fssource": "/dev/mapper/root[/@home]", "fstype": "btrfs", "model": "SYNTHETIC", "serial": "SYNTHETIC"}}
+  ]
+}

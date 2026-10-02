@@ -166,7 +166,7 @@ rep = run(src={"dev": 1},
 check("unknown outranks warn", rep["verdict"] == "unknown", rep["verdict"])
 
 # ---- fixture files run through the same check ------------------------------
-FIX = Path(__file__).resolve().parent.parent / "receipts" / "fixtures"
+FIX = Path(__file__).resolve().parent.parent / "tools" / "fixtures"
 for name, expect in [("independence-siblings.json", "warn"),
                      ("independence-one-host.json", "refuse")]:
     with open(FIX / name) as f:
