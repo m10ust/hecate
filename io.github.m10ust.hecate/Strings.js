@@ -82,8 +82,8 @@ var S = {
 
  // ---- step 6: first run ----
  "firstRunHeading": "Ready to make the first copies", // [N]
- "firstRunTruth": "The first copy takes hours, not minutes. 412 GB over USB will run for a while. You can close this panel. It resumes where it stopped.", // [W]
- "firstRunTruthDraft": "M5.5 The first copy writes {size} to each corner, which takes longer than any run after it. You can close this panel. It resumes where it stopped.", // [N] — the old string keeps shipping until his word
+ "firstRunTruth": "The first copy takes hours, not minutes, because it is writing every byte. It resumes where it stopped, so you can close this panel and come back. You can close this panel. It resumes where it stopped.", // [W]
+ "firstRunTruthDraft": "The first copy writes {size} to each corner, which takes longer than any run after it. You can close this panel. It resumes where it stopped.", // [N] — the old string keeps shipping until his word
  "firstRunStart": "Run it now", // [N]
  "firstRunLater": "Skip for now", // [N]
  "firstRunRunning": "Copying. You can close this panel.", // [N]
