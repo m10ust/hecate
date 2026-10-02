@@ -8,10 +8,9 @@ import qs.Ui
 // display-time classification. There is no demo switch and no literal
 // state in this file.
 //
-// Glyph law: THREE dots, one per corner — Hecate Triformis — and nothing
-// else. Each dot's colour is that corner's worst status ACROSS ALL JOBS,
-// parsed from the state file. No word: the dots are the whole mark, and
-// the tooltip carries the detail for anyone who hovers.
+// Glyph law: THREE dots, one per corner — Hecate Triformis. Each dot's
+// colour is that corner's worst status ACROSS ALL JOBS, parsed from the
+// state file. The word next to the dots is the whole-glyph verdict.
 BarWidget {
   id: root
 
@@ -42,7 +41,7 @@ BarWidget {
   readonly property string tooltip: {
     if (!hecate) return "Hecate: service not loaded"
     var lines = []
-    lines.push("HECATE — three-corner backups")
+    lines.push("HECATE — three-corner backups · v0.0.5 M5")
     lines.push("state   " + hecate.fileBasis)
     if (hecate.parseFailed) lines.push("        " + hecate.parseError)
     if (hecate.jobs.length === 0 && !hecate.parseFailed) {
@@ -118,6 +117,16 @@ BarWidget {
       }
     }
 
+    Item { width: Style.space(3); height: 1 }
+
+    Text {
+      font.family: root.bar ? root.bar.fontFamily : Style.font.family
+      font.pixelSize: Style.font.body
+      font.bold: true
+      color: root.verdict === "grey" ? root.dim : root.ink
+      text: "HECATE"
+      anchors.verticalCenter: parent.verticalCenter
+    }
   }
 
   Loader {
