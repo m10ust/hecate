@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 
-// Hecate service — v0.0.6 M5.5 (picker, AIDE announce, backed-disk key).
+// Hecate service.
 //
 // ONE LAW: nothing is rendered that was not measured. Every value the bar
 // glyph and the panel display comes from parsing
