@@ -14,8 +14,9 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import _layout  # noqa: E402  (tools/_layout.py)
 
-ENGINE = Path(__file__).resolve().parents[1] / "io.github.m10ust.hecate/engine/hecate.py"
+ENGINE = Path(__file__).resolve().parents[1] / str(_layout.ENGINE_PY)
 spec = importlib.util.spec_from_file_location("hecate", ENGINE)
 hecate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hecate)
