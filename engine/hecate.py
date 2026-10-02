@@ -168,7 +168,7 @@ def file_list_ssh(host: str, tree: str):
     (the caller records unknown, never a silent pass)."""
     try:
         proc = subprocess.run(
-            ["rsync", "--list-only", "-e", RSYNC_E, f"{host}:{tree}/"],
+            ["rsync", "--recursive", "--list-only", "-e", RSYNC_E, f"{host}:{tree}/"],
             capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
         return None
@@ -361,6 +361,9 @@ def scrub_check_manifest(tree: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 REMOTE_SCRUB = (
+    'if command -v sha256sum >/dev/null 2>&1; then hash_file() { sha256sum < "$1"; }; '
+    'elif command -v shasum >/dev/null 2>&1; then hash_file() { shasum -a 256 < "$1"; }; '
+    'else echo "ERR no SHA256 tool"; exit 3; fi; '
     'd="$1"; m="$d/MANIFEST.sha256"; '
     'test -f "$m" || { echo "ERR no manifest at $m"; exit 3; }; '
     'cd "$d" || exit 4; '
@@ -374,7 +377,7 @@ REMOTE_SCRUB = (
     '  h=${line%%  *}; rel=${line#*  }; '
     '  [ -n "$h" ] && [ -n "$rel" ] || continue; '
     '  n=$((n+1)); '
-    '  c=$(sha256sum -- "$rel" 2>/dev/null | cut -d" " -f1); '
+    '  c=$(hash_file "$rel" 2>/dev/null | cut -d" " -f1); '
     '  if [ "$c" != "$h" ]; then bad=$((bad+1)); echo "MISMATCH $rel want=$h got=${c:-unreadable}"; fi; '
     'done < "$m"; '
     'echo "SCRUB files=$n bad=$bad"; '
@@ -824,6 +827,10 @@ EXPAND_TILDE = 'd="$1"; case "$d" in "~"*) d="$HOME${d#\\~}";; esac; '
 SSH_IDENTITY_PROBE = (
     EXPAND_TILDE
     + 'if [ ! -e "$d" ]; then echo "missing=1"; exit 3; fi; '
+    'if [ "$(uname -s)" = Darwin ]; then '
+    'echo "platform=Darwin"; echo "dev=$(stat -f %d "$d")"; '
+    'ioreg -rd1 -c IOPlatformExpertDevice | sed -n \'/"IOPlatformUUID"/s/.*= "\\(.*\\)".*/machine=\\1/p\'; '
+    'exit 0; fi; '
     'echo "dev=$(stat -c %d "$d" 2>/dev/null)"; '
     'echo "uuid=$(findmnt -T "$d" -n -o UUID 2>/dev/null)"; '
     'echo "source=$(findmnt -T "$d" -n -o SOURCE 2>/dev/null)"; '
@@ -1114,6 +1121,8 @@ def read_ssh_identity(dest: str) -> dict:
         return {"unreadable": f"ssh probe to {host} exited {proc.returncode}"
                              + (f": {err[-1][:200]}" if err else "")}
     ident: dict = {"host": host, "path": path}
+    if "platform=Darwin" in proc.stdout.splitlines():
+        return read_darwin_identity(host, path, proc.stdout)
     for line in proc.stdout.splitlines():
         if "=" in line:
             k, v = line.split("=", 1)
@@ -1140,6 +1149,96 @@ def read_ssh_identity(dest: str) -> dict:
     ident["physical"] = sorted(set(ident.get("physical", [])))
     if not ident.get("machine") or not ident.get("physical"):
         ident["unreadable"] = f"physical backing device or machine identity unreadable on {host}"
+    return ident
+
+
+def darwin_disk_info(host: str, device: str, is_path: bool = False) -> dict:
+    """Read Apple's plist directly on the Linux side; no Python/jq on the Mac."""
+    import plistlib
+    script = 'diskutil info -plist "$1"'
+    if is_path:
+        script = ('d="$1"; device=$(df -k -P "$d" | awk \'END {print $1}\'); '
+                  'case "$device" in /dev/disk*) diskutil info -plist "$device";; *) exit 3;; esac')
+    proc = ssh_script(host, script, [device])
+    if proc.returncode:
+        raise ValueError(f"diskutil info exit={proc.returncode}: {(proc.stderr or '').strip()[-200:]}")
+    try:
+        info = plistlib.loads(proc.stdout.encode())
+    except (ValueError, plistlib.InvalidFileException) as e:
+        raise ValueError(f"diskutil returned an unreadable plist: {e}") from e
+    if not isinstance(info, dict):
+        raise ValueError("diskutil info returned no dictionary")
+    return info
+
+
+def read_darwin_identity(host: str, path: str, probe: str) -> dict:
+    """Trace APFS physical stores or HFS partitions to proven physical disks."""
+    import plistlib
+    ident = {"host": host, "path": path, "platform": "Darwin"}
+    for line in probe.splitlines():
+        key, _, value = line.partition("=")
+        if key == "dev" and value.isdigit(): ident["dev"] = int(value)
+        if key == "machine": ident["machine"] = _clean_id_value(value)
+    try:
+        volume = darwin_disk_info(host, path, is_path=True)
+        ident["fsuuid"] = _clean_id_value(volume.get("VolumeUUID"))
+        ident["fssource"] = volume.get("DeviceNode")
+        ident["fstype"] = _clean_id_value(volume.get("FilesystemType"))
+        ident["mountpoint"] = volume.get("MountPoint")
+        stores = volume.get("APFSPhysicalStores")
+        if str(ident.get("fstype", "")).lower() == "apfs" and not stores:
+            container = volume.get("APFSContainerReference")
+            if not container: raise ValueError("APFS container reference unreadable")
+            proc = ssh_script(host, 'diskutil apfs list -plist "$1"', [container])
+            if proc.returncode: raise ValueError(f"diskutil apfs list exit={proc.returncode}")
+            tree = plistlib.loads(proc.stdout.encode())
+            matches = [c for c in tree.get("Containers", []) if c.get("ContainerReference") == container]
+            if len(matches) != 1: raise ValueError("APFS physical store topology unreadable")
+            stores = matches[0].get("PhysicalStores")
+        if str(ident.get("fstype", "")).lower() == "apfs":
+            if not isinstance(stores, list) or not stores: raise ValueError("APFS physical stores unreadable")
+            devices = [(s.get("APFSPhysicalStore") or s.get("DeviceIdentifier")) if isinstance(s, dict) else s for s in stores]
+        else:
+            devices = [volume.get("DeviceIdentifier")]
+        disks = {}
+        physical_list = None
+        infos = {volume.get("DeviceIdentifier"): volume}
+        def info_for(device):
+            if device not in infos:
+                infos[device] = darwin_disk_info(host, device)
+            return infos[device]
+        for device in devices:
+            if not device: raise ValueError("physical store device unreadable")
+            part = info_for(device)
+            whole = part.get("WholeDisk", part.get("Whole"))
+            parent = part.get("DeviceIdentifier") if whole else part.get("ParentWholeDisk")
+            if not parent: raise ValueError(f"whole disk parent unreadable: {device}")
+            disk = info_for(parent)
+            proven = disk.get("VirtualOrPhysical") == "Physical"
+            if disk.get("VirtualOrPhysical") == "Unknown":
+                # Apple Silicon can report Unknown for a real whole disk.
+                # The explicit physical filter is independent evidence.
+                if physical_list is None:
+                    proc = ssh_script(host, 'diskutil list -plist physical', [])
+                    if proc.returncode: raise ValueError(f"diskutil list physical exit={proc.returncode}")
+                    listing = plistlib.loads(proc.stdout.encode())
+                    physical_list = {d.get("DeviceIdentifier") for d in listing.get("AllDisksAndPartitions", [])}
+                proven = parent in physical_list
+            if disk.get("WholeDisk", disk.get("Whole")) is not True or not proven:
+                raise ValueError(f"backing disk is not proven physical: {parent}")
+            disks[parent] = disk
+        ident["physical"] = sorted("/dev/" + d for d in disks)
+        if len(disks) == 1:
+            disk = next(iter(disks.values()))
+            ident["model"] = _clean_id_value(disk.get("MediaName"))
+            ident["serial"] = _clean_id_value(disk.get("SerialNumber"))
+            ident["transport"] = _clean_id_value(disk.get("BusProtocol"))
+        uuids = [d.get("DiskUUID") for d in disks.values()]
+        if all(uuids): ident["physicalUUIDs"] = sorted(uuids)
+        if "dev" not in ident or not ident.get("machine"):
+            raise ValueError("Mac device ID or hardware UUID unreadable")
+    except (OSError, ValueError, TypeError, AttributeError, plistlib.InvalidFileException, subprocess.SubprocessError) as e:
+        ident["unreadable"] = f"Darwin backing identity unreadable on {host}: {e}"
     return ident
 
 
@@ -1174,7 +1273,8 @@ def destination_observation(c: dict) -> dict:
     # USB enumeration can change /dev/sdX after a replug. Prefer the recorded
     # hardware serial when available; filesystem UUID alone cannot identify
     # the disk (a clone can preserve it).
-    keys = ("machine", "fsuuid", "serial") if expected.get("serial") else ("machine", "fsuuid", "physical")
+    stable = "serial" if expected.get("serial") else "physicalUUIDs" if expected.get("physicalUUIDs") else "physical"
+    keys = ("machine", "fsuuid", stable)
     for key in keys:
         if expected.get(key) and not actual.get(key):
             return {"present": None, "reason": f"destination backing identity unreadable: {key}"}
@@ -1407,16 +1507,18 @@ def snapshot_name() -> str:
 
 
 def resolve_latest(job_dir: Path):
-    """Path of the newest successful snapshot, via the <ts>.latest symlink."""
+    """Newest published snapshot; exFAT uses a regular-file marker."""
     if not job_dir.is_dir():
         return None
     best = None
     for e in sorted(job_dir.iterdir()):
-        if e.name.endswith(".latest") and e.is_symlink():
+        if e.name.endswith(".latest") and (e.is_symlink() or e.is_file()):
             best = e
     if best is None:
         return None
-    tgt = os.readlink(best)
+    tgt = os.readlink(best) if best.is_symlink() else best.read_text().strip()
+    if not best.is_symlink() and (not tgt or Path(tgt).name != tgt):
+        raise ValueError(f"invalid latest marker: {best}")
     p = Path(tgt) if os.path.isabs(tgt) else best.parent / tgt
     return p if p.is_dir() else None
 
@@ -1425,24 +1527,29 @@ def remote_latest(host: str, job_dir: str):
     """resolve_latest() over ssh; returns the snapshot NAME (relative,
     which is what remote --link-dest wants) or None."""
     probe = ('d="$1"; l=$(ls -1 "$d" 2>/dev/null | grep "\\.latest$" | tail -1); '
-             '[ -n "$l" ] && readlink "$d/$l" && exit 0; exit 1')
+             '[ -n "$l" ] || exit 1; '
+             'if [ -L "$d/$l" ]; then readlink "$d/$l"; else cat "$d/$l"; fi')
     try:
         proc = ssh_script(host, probe, [job_dir], timeout=45)
     except (OSError, subprocess.SubprocessError):
         return None
     name = (proc.stdout or "").strip()
-    return name or None
+    if proc.returncode or not name or "/" in name or name in (".", ".."):
+        return None
+    return name
 
 
-def run_rsync(source: Path, snapshot, link_dest, host: str | None = None):
+def run_rsync(source: Path, snapshot, link_dest, host: str | None = None, portable: bool = False):
     """(rc, err-tail, changed). changed = relative paths rsync
     actually wrote this run (itemize receipts). The itemize format is stable from
     rsync 3.1 onward; a parse miss degrades to full-snapshot hashing
     (honest, slower), never to no hashing."""
-    cmd = ["rsync", "-a", "--numeric-ids", "--out-format=ITEMIZE %i|%n|"]
+    cmd = (["rsync", "-rt", "--modify-window=2"] if portable
+           else ["rsync", "-a", "--numeric-ids"])
+    cmd.append("--out-format=ITEMIZE %i|%n|")
     if host is not None:
         cmd += ["-e", RSYNC_E]
-    if link_dest is not None:
+    if link_dest is not None and not portable:
         cmd.append(f"--link-dest={link_dest}")
     dest_arg = f"{host}:{snapshot}/" if host else f"{snapshot}/"
     cmd += [str(source).rstrip("/") + "/", dest_arg]
@@ -1567,6 +1674,17 @@ def run_corner(job: dict, c: dict) -> bool:
         return False
 
     src = Path(job["source"]["path"]).expanduser()
+    portable = str(observed.get("identity", {}).get("fstype", c["identity"].get("fstype", ""))).lower() == "exfat"
+    if portable:
+        source_check = portable_source_check(str(src))
+        if source_check["verdict"] != "pass":
+            return _fail(c, source_check["reason"])
+        capacity = corner_capacity_report(measure(src), destination_capacity(c, name))
+        if capacity["verdict"] in ("refuse", "unknown"):
+            c["override"] = {"status": "unknown", "reason": capacity["reason"]}
+            return False
+        c["snapshotMode"] = "full-copy"
+        c["metadataPreserved"] = False
     host, rpath = None, None
     if transport == "ssh":
         host, rpath = parse_ssh_dest(c["destination"])
@@ -1588,13 +1706,15 @@ def run_corner(job: dict, c: dict) -> bool:
         if transport == "local":
             job_dir = Path(c["destination"]).expanduser() / "hecate" / name
             job_dir.mkdir(parents=True, exist_ok=True)
-            while (job_dir / ts).exists():  # never reuse a timestamp
+            while any(p.exists() or p.is_symlink() for p in
+                      (job_dir / ts, job_dir / (ts + ".latest"), job_dir / (ts + ".latest.tmp"))):
                 time.sleep(1.0)
                 ts = snapshot_name()
             snap = job_dir / ts
-            prev = resolve_latest(job_dir)          # absolute path
+            prev = None if portable else resolve_latest(job_dir)
             link = str(prev) if prev else None
-            code, err, changed = run_rsync(src, snap, link)
+            code, err, changed = (run_rsync(src, snap, None, portable=True) if portable
+                                  else run_rsync(src, snap, link))
         else:
             assert host is not None and rpath is not None  # bound when transport == "ssh"
             job_dir = f"{rpath.rstrip('/')}/hecate/{name}"
@@ -1608,7 +1728,8 @@ def run_corner(job: dict, c: dict) -> bool:
             # never reuse a timestamp on the remote side either (M5 loose
             # end: the collision handler now exists on both transports)
             while True:
-                coll = ssh_script(host, 'test -e "$1" && echo exists || echo free',
+                coll = ssh_script(host, 'for p in "$1" "$1.latest" "$1.latest.tmp"; do '
+                                  'if [ -e "$p" ] || [ -L "$p" ]; then echo exists; exit 0; fi; done; echo free',
                                   [f"{job_dir}/{ts}"])
                 if coll.returncode != 0:
                     return _fail(c, f"collision probe failed on {host}: exit {coll.returncode}")
@@ -1616,11 +1737,12 @@ def run_corner(job: dict, c: dict) -> bool:
                     break
                 time.sleep(1.0)
                 ts = snapshot_name()
-            prev_name = remote_latest(host, job_dir)  # relative name
+            prev_name = None if portable else remote_latest(host, job_dir)
             link = os.path.join("..", prev_name) if prev_name else None
             base_prev_name = prev_name  # captured BEFORE the .latest flip
             snap = f"{job_dir}/{ts}"
-            code, err, changed = run_rsync(src, snap, link, host=host)
+            code, err, changed = (run_rsync(src, snap, None, host=host, portable=True) if portable
+                                  else run_rsync(src, snap, link, host=host))
     except OSError as e:
         return _fail(c, f"{type(e).__name__}: {e}")
 
@@ -1748,25 +1870,30 @@ def run_corner(job: dict, c: dict) -> bool:
         c["verified"] = False
     if not lists_agree:
         return False
+    if portable:
+        source_check = portable_source_check(str(src))
+        if source_check["verdict"] != "pass":
+            return _fail(c, source_check["reason"])
 
-    # success: flip .latest atomically (symlink + rename), exactly one kept
+    # Publish a new marker atomically. Retain all prior snapshots and markers.
     if transport == "local":
         job_dir_p = Path(job_dir)
         latest = job_dir_p / (ts + ".latest")
         tmp_link = job_dir_p / (ts + ".latest.tmp")
-        if tmp_link.is_symlink() or tmp_link.exists():
-            tmp_link.unlink()
-        os.symlink(ts, tmp_link)
+        if portable:
+            with tmp_link.open("x") as f:
+                f.write(ts + "\n")
+        else:
+            os.symlink(ts, tmp_link)
         os.replace(tmp_link, latest)
-        for e in job_dir_p.iterdir():
-            if e.name.endswith(".latest") and e.name != latest.name:
-                e.unlink()
     else:
         assert host is not None  # bound when transport == "ssh"
-        flip = ('set -e; d="$1"; t="$2"; ln -s "$t" "$d/$t.latest.tmp" 2>/dev/null; '
-                'mv -T "$d/$t.latest.tmp" "$d/$t.latest"; '
-                'for l in "$d"/*.latest; do [ "$l" = "$d/$t.latest" ] || rm -f "$l"; done')
-        flipped = ssh_script(host, flip, [job_dir, ts])
+        flip = ('set -e; set -C; d="$1"; t="$2"; '
+                'if [ "$3" = full-copy ]; then printf "%s\\n" "$t" > "$d/$t.latest.tmp"; '
+                'else ln -s "$t" "$d/$t.latest.tmp" 2>/dev/null; fi; '
+                'if [ "$(uname -s)" = Darwin ]; then mv -h "$d/$t.latest.tmp" "$d/$t.latest"; '
+                'else mv -T "$d/$t.latest.tmp" "$d/$t.latest"; fi')
+        flipped = ssh_script(host, flip, [job_dir, ts, "full-copy" if portable else "hardlinks"])
         if flipped.returncode:
             c["override"] = {"status": "unknown", "reason": f"latest link update exit={flipped.returncode}: {flipped.stderr}"}
             return False
@@ -1912,18 +2039,43 @@ def corner_capacity_report(src_measure, cap) -> dict:
             "sourceBytes": src, "availableBytes": avail}
 
 
-def destination_readiness(c: dict, source_bytes: int) -> dict:
+def portable_source_check(source_path: str | None) -> dict:
+    """exFAT mode copies regular files/directories, never silently drops links."""
+    import stat
+    if not source_path:
+        return {"verdict": "unknown", "reason": "exfat: source path required to check unsupported file types"}
+    root_path = Path(source_path).expanduser()
+    if not root_path.is_dir():
+        return {"verdict": "unknown", "reason": f"source directory unreadable: {root_path}"}
+    def fail(error): raise error
+    try:
+        for root, dirs, files in os.walk(root_path, followlinks=False, onerror=fail):
+            for name in dirs + files:
+                path = Path(root) / name
+                mode = path.lstat().st_mode
+                if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    kind = "symlink" if stat.S_ISLNK(mode) else "special-file"
+                    return {"verdict": "refuse", "reason": f"exfat: unsupported source file type at {path}; fileType={kind}; mode={oct(mode)}"}
+    except OSError as e:
+        return {"verdict": "unknown", "reason": f"exfat source read: {e}"}
+    return {"verdict": "pass"}
+
+
+def destination_readiness(c: dict, source_bytes: int, source_path: str | None = None) -> dict:
     """Readiness is separate from independence; both gate declarations."""
     ident = corner_identity(c)
     if ident.get("unreadable"):
         return {"verdict": "unknown", "reason": ident["unreadable"]}
+    portable = str(ident.get("fstype", "")).lower() == "exfat"
+    if portable:
+        source_check = portable_source_check(source_path)
+        if source_check["verdict"] != "pass": return source_check
+    if str(ident.get("fstype", "")).lower() in ("vfat", "msdos"):
+        return {"verdict": "refuse", "reason": f"snapshot hardlinks/symlinks unsupported: fstype={ident['fstype']}"}
     if c.get("transport", "local") == "local":
         p = Path(c["destination"]).expanduser()
         if not p.is_dir() or not os.access(p, os.W_OK | os.X_OK):
             return {"verdict": "refuse", "reason": f"destination not writable: {p}"}
-        # The snapshot layout requires hardlinks and symlinks; do not bless FAT/exFAT.
-        if ident.get("fstype") in ("vfat", "exfat", "msdos"):
-            return {"verdict": "refuse", "reason": f"snapshot hardlinks/symlinks unsupported: fstype={ident['fstype']}"}
     else:
         host, path = parse_ssh_dest(c["destination"])
         if path.startswith("~"):
@@ -1932,12 +2084,17 @@ def destination_readiness(c: dict, source_bytes: int) -> dict:
                 return {"verdict": "unknown", "reason": f"remote home unreadable: {host}"}
             path = home + path[1:]
         try:
-            proc = ssh_script(host, 'test -d "$1" && test -w "$1" && command -v rsync >/dev/null && command -v sha256sum >/dev/null', [path])
+            proc = ssh_script(host, 'test -d "$1" && test -w "$1" && command -v rsync >/dev/null && '
+                              '{ command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; }', [path])
         except (OSError, subprocess.SubprocessError) as e:
             return {"verdict": "unknown", "reason": str(e)}
         if proc.returncode:
             return {"verdict": "unknown", "reason": f"ssh readiness exit={proc.returncode}: {(proc.stderr or '').strip()[-200:]}"}
-    return corner_capacity_report({"bytes": source_bytes}, destination_capacity(c, "wizard-candidate"))
+    capacity = corner_capacity_report({"bytes": source_bytes}, destination_capacity(c, "wizard-candidate"))
+    if portable and capacity["verdict"] in ("pass", "warn"):
+        capacity.update({"verdict": "warn", "reason": "fstype=exfat; snapshotMode=full-copy; hardlinkSavings=false; LinuxOwnershipPermissions=false; symlinks=refused; " + capacity.get("reason", ""),
+                         "snapshotMode": "full-copy", "metadataPreserved": False})
+    return capacity
 
 
 def destination_capacity(c: dict, job_name: str) -> dict | None:
@@ -2203,12 +2360,12 @@ def _gate_corner(state: dict, job: dict, cand: dict, accept_warning: bool) -> in
     """Law 1 at declaration time: refuse what the check refuses, record the
     acceptance of what it warns about. Returns 0 when the corner landed."""
     report = independence_check(job_participants(job, extra_corner=cand))
-    ready = destination_readiness(cand, job["source"]["bytes"])
-    if ready["verdict"] in ("refuse", "unknown"):
+    ready = destination_readiness(cand, job["source"]["bytes"], job["source"]["path"])
+    if ready["verdict"] in ("refuse", "unknown", "warn"):
         report["findings"].append({"kind": ready["verdict"], "corners": [cand["index"]],
                                    "reason": ready["reason"], "evidence": ready})
-        if report["verdict"] != "refuse":
-            report["verdict"] = ready["verdict"]
+        kinds = {f["kind"] for f in report["findings"]}
+        report["verdict"] = next(v for v in ("refuse", "unknown", "warn") if v in kinds)
     print_report(report, f"candidate corner {cand['index']} -> {cand['destination']} "
                          f"for job '{job['name']}'")
     verdict = report["verdict"]
@@ -2424,7 +2581,7 @@ def cmd_check_destination(source: str, dest: str, transport: str,
         source_bytes = measure(Path(source).expanduser()).get("bytes")
     cap = destination_capacity({"transport": transport, "destination": dest},
                                "wizard-candidate")
-    capacity = destination_readiness(cand, source_bytes) if source_bytes is not None else corner_capacity_report(None, cap)
+    capacity = destination_readiness(cand, source_bytes, source) if source_bytes is not None else corner_capacity_report(None, cap)
     if capacity["verdict"] in ("refuse", "warn", "unknown"):
         report["findings"].append({"kind": capacity["verdict"], "corners": ["candidate"],
                                    "reason": capacity.get("reason", f"available capacity ratio: {capacity.get('ratio')}"),
@@ -2482,12 +2639,12 @@ def cmd_replace_corner(name: str, corner: str, dest: str, transport: str,
     trial = [c for c in corners if int(c.get("index", 0)) != cidx] + [cand]
     trial_job = {"name": job["name"], "source": job["source"], "corners": trial}
     report = independence_check(job_participants(trial_job))
-    ready = destination_readiness(cand, job["source"]["bytes"])
-    if ready["verdict"] in ("refuse", "unknown"):
+    ready = destination_readiness(cand, job["source"]["bytes"], job["source"]["path"])
+    if ready["verdict"] in ("refuse", "unknown", "warn"):
         report["findings"].append({"kind": ready["verdict"], "corners": [cidx],
                                    "reason": ready["reason"], "evidence": ready})
-        if report["verdict"] != "refuse":
-            report["verdict"] = ready["verdict"]
+        kinds = {f["kind"] for f in report["findings"]}
+        report["verdict"] = next(v for v in ("refuse", "unknown", "warn") if v in kinds)
     print_report(report, f"corner {cidx} of '{name}' -> {dst}")
     verdict = report["verdict"]
     if verdict == "refuse":

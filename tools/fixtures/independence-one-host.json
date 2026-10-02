@@ -1,0 +1,14 @@
+{
+  "name": "two corners on one remote machine",
+  "comment": "Both ssh corners land on one host: one power path, one set of updates, one hardware fate.",
+  "participants": [
+    {"index": "source", "transport": "local",
+     "identity": {"dev": 64512, "path": "/home/m4/hecate-test/source", "fsuuid": "11111111-aaaa-bbbb-cccc-000000000001", "fstype": "btrfs"}},
+    {"index": 1, "transport": "local",
+     "identity": {"dev": 64513, "path": "/mnt/drive-a", "fsuuid": "22222222-aaaa-bbbb-cccc-000000000002", "fstype": "ext4"}},
+    {"index": 2, "transport": "ssh",
+     "identity": {"host": "beelink", "path": "/srv/corners/one", "dev": 30, "fsuuid": "44444444-aaaa-bbbb-cccc-000000000004", "fstype": "btrfs"}},
+    {"index": 3, "transport": "ssh",
+     "identity": {"host": "beelink", "path": "/srv/corners/two", "dev": 30, "fsuuid": "44444444-aaaa-bbbb-cccc-000000000004", "fstype": "btrfs"}}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "two same-model drives, same power path (the two-Crucial lesson)",
+  "comment": "Unit-tested from fixture data because needing two physical drives to exist is not honesty, it is luck.",
+  "participants": [
+    {"index": "source", "transport": "local",
+     "identity": {"dev": 64512, "path": "/home/m4/hecate-test/source", "fsuuid": "11111111-aaaa-bbbb-cccc-000000000001", "fstype": "btrfs"}},
+    {"index": 1, "transport": "local",
+     "identity": {"dev": 64513, "path": "/mnt/drive-a", "fsuuid": "22222222-aaaa-bbbb-cccc-000000000002", "fstype": "ext4", "model": "Crucial CT2000", "serial": "SER-A", "power": "hub-1"}},
+    {"index": 2, "transport": "local",
+     "identity": {"dev": 64514, "path": "/mnt/drive-b", "fsuuid": "33333333-aaaa-bbbb-cccc-000000000003", "fstype": "ext4", "model": "Crucial CT2000", "serial": "SER-B", "power": "hub-1"}}
+  ]
+}
