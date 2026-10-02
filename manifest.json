@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.m10ust.hecate",
   "name": "Hecate",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "author": "m10ust",
   "license": "MIT",
   "description": "Guided three-corner backups. One source, three destinations that can fail independently.",
