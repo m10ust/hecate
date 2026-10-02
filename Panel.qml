@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 import "Strings.js" as Loc
 
-// Hecate panel — v0.0.1 WALKING SKELETON (M1, redo brief).
+// Hecate panel.
 // Renders ONLY what the service parsed from ~/.local/state/hecate/state.json.
 // No literal state, no demo switch, nothing invented. The source is its own
 // row and is not a corner; the three corners are rows with transport,

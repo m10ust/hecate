@@ -3,7 +3,7 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Hecate bar widget — v0.0.5 M5.
+// Hecate bar widget.
 // Render-only: every value comes from the service's PARSED state and its
 // display-time classification. There is no demo switch and no literal
 // state in this file.

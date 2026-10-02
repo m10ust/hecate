@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hecate engine — M5.5 (v0.0.6: picker, AIDE announce, backed-disk key).
+"""Hecate engine.
 
 The thing that makes actual copies and writes facts. Contract: PLAN.md
 "Data contract (corrected 2026-09-30)". This engine NEVER stores a `status`
