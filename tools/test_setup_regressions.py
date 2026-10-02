@@ -32,6 +32,13 @@ def participant(index, ident, transport="local"):
 
 
 class SetupRegressions(unittest.TestCase):
+    def test_old_python_reports_requirement_before_annotations(self):
+        script = "import sys, runpy; sys.version_info = (3, 9, 0); sys.version = '3.9.0 (simulated)'; runpy.run_path(sys.argv[1], run_name='__main__')"
+        proc = subprocess.run(["python3", "-B", "-c", script, str(ENGINE)], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("Python 3.10 or newer is required; found 3.9.0", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="hecate-regression-")
         self.addCleanup(self.tmp.cleanup)

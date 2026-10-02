@@ -208,6 +208,17 @@ Column {
     return checkReport.verdict === "pass" || (checkReport.verdict === "warn" && warnAck)
   }
 
+  function continueWarning() {
+    if (busy || !checkReport || checkReport.verdict !== "warn") return
+    if (mode === "new" && step >= 1 && step <= 3) {
+      warnAck = true
+      acceptCheckedCorner()
+    } else if (mode === "reentry-corner" && !replaceDone) {
+      warnAck = true
+      commitReplace(destField, transportIdx === 1 ? "ssh" : "local", true)
+    }
+  }
+
   function leaveSource() {
     if (busy || !sourceMeasure) return
     var requestedName = nameField
@@ -227,6 +238,13 @@ Column {
       destField = cornerPlan[step - 1] || ""
       transportIdx = cornerTransports[step - 1] === "ssh" ? 1 : 0
     }
+  }
+
+  function chooseTransport(dropdown, value) {
+    transportIdx = value === "ssh" ? 1 : 0
+    // Dropdown assigns its value before emitting changed, breaking the
+    // initial binding. Restore it so Back/next-corner resets stay visible.
+    dropdown.value = Qt.binding(function() { return root.transportIdx === 1 ? "ssh" : "local" })
   }
 
   onTransportIdxChanged: { checkReport = null; warnAck = false; replaceDone = false }
@@ -673,10 +691,10 @@ Column {
     Dropdown {
       id: transportDrop
       width: parent.width
-      value: root.transportIdx === 1 ? Loc.S.transportSsh : Loc.S.transportLocal
-      options: [Loc.S.transportLocal, Loc.S.transportSsh]
+      value: root.transportIdx === 1 ? "ssh" : "local"
+      options: [{value: "local", label: Loc.S.transportLocal}, {value: "ssh", label: Loc.S.transportSsh}]
       enabled: !root.busy
-      onChanged: function(v) { root.transportIdx = v === Loc.S.transportSsh ? 1 : 0 }
+      onChanged: function(v) { root.chooseTransport(transportDrop, v) }
     }
 
     TextField {
@@ -855,7 +873,8 @@ Column {
       focusable: true
           text: Loc.S.cornerWarnAck
           selected: root.warnAck
-          onClicked: root.warnAck = !root.warnAck
+          enabled: !root.busy
+          onClicked: root.continueWarning()
         }
       }
     }
@@ -1076,9 +1095,9 @@ Column {
     Dropdown {
       id: rcTransport
       width: parent.width
-      value: root.transportIdx === 1 ? Loc.S.transportSsh : Loc.S.transportLocal
-      options: [Loc.S.transportLocal, Loc.S.transportSsh]
-      onChanged: function(v) { root.transportIdx = v === Loc.S.transportSsh ? 1 : 0 }
+      value: root.transportIdx === 1 ? "ssh" : "local"
+      options: [{value: "local", label: Loc.S.transportLocal}, {value: "ssh", label: Loc.S.transportSsh}]
+      onChanged: function(v) { root.chooseTransport(rcTransport, v) }
       enabled: !root.busy
     }
 
@@ -1133,7 +1152,8 @@ Column {
       visible: root.checkReport !== null && root.checkReport.verdict === "warn"
       text: Loc.S.cornerWarnAck
       selected: root.warnAck
-      onClicked: root.warnAck = !root.warnAck
+      enabled: !root.busy && !root.replaceDone
+      onClicked: root.continueWarning()
     }
 
     Text {
