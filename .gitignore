@@ -3,6 +3,8 @@
 # Round correspondence lives in the relay inbox, not the repo (Oracle call 2026-09-30)
 # Scratch generated while working
 *-to-windy*.md
+*.bak
+*.bak-*
 *.tmp
 ??-*
 ACK-*.md
