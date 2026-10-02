@@ -1,0 +1,21 @@
+# NOTE: receipts/ stays TRACKED on purpose until M2 changes the evidence shape
+# Oracle resume/ack notes delivered to the inbox, never the tree
+# Round correspondence lives in the relay inbox, not the repo (Oracle call 2026-09-30)
+# Scratch generated while working
+*-to-windy*.md
+*.tmp
+??-*
+ACK-*.md
+ACK-to-windy-*.md
+ASTRA-PROMPT-*.md
+BRIEF-*.md
+BRIEF-windy-*.md
+BUG-*.md
+HOUSEKEEPING-*.md
+HOUSEKEEPING-to-windy.md
+RESUME-*.md
+STANDDOWN-*.md
+TRIAGE-*.md
+__pycache__/
+receipts/
+tools/__pycache__/
