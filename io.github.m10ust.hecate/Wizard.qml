@@ -208,6 +208,17 @@ Column {
     return checkReport.verdict === "pass" || (checkReport.verdict === "warn" && warnAck)
   }
 
+  function continueWarning() {
+    if (busy || !checkReport || checkReport.verdict !== "warn") return
+    if (mode === "new" && step >= 1 && step <= 3) {
+      warnAck = true
+      acceptCheckedCorner()
+    } else if (mode === "reentry-corner" && !replaceDone) {
+      warnAck = true
+      commitReplace(destField, transportIdx === 1 ? "ssh" : "local", true)
+    }
+  }
+
   function leaveSource() {
     if (busy || !sourceMeasure) return
     var requestedName = nameField
@@ -855,7 +866,8 @@ Column {
       focusable: true
           text: Loc.S.cornerWarnAck
           selected: root.warnAck
-          onClicked: root.warnAck = !root.warnAck
+          enabled: !root.busy
+          onClicked: root.continueWarning()
         }
       }
     }
@@ -1133,7 +1145,8 @@ Column {
       visible: root.checkReport !== null && root.checkReport.verdict === "warn"
       text: Loc.S.cornerWarnAck
       selected: root.warnAck
-      onClicked: root.warnAck = !root.warnAck
+      enabled: !root.busy && !root.replaceDone
+      onClicked: root.continueWarning()
     }
 
     Text {
