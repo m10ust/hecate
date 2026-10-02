@@ -64,10 +64,16 @@ Layout: <dest>/hecate/<job>/<YYYYMMDD-HHMMSS>/ + <timestamp>.latest symlink
         the source survives in yesterday's tree. ssh corners run the same
         rsync over ssh (link-dest relative to the remote snapshot dir).
 """
+import sys
+
+# Check before annotations are evaluated, including on Python 3.9 and older.
+if sys.version_info < (3, 10):
+    print("hecate: Python 3.10 or newer is required; found " + sys.version.split()[0], file=sys.stderr)
+    raise SystemExit(2)
+
 import json
 import os
 import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path

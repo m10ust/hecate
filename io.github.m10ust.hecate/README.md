@@ -6,6 +6,16 @@ each with a transport (`local`, `ssh`, `rclone`), and the one hard rule is
 independence: two partitions of one disk are not two corners, and neither
 are two corners on one cloud account.
 
+## Requirements
+
+The Omarchy machine running the engine needs **Python 3.10 or newer**.
+Check it with `python3 --version`. Older interpreters are rejected before the
+engine evaluates its type annotations, with an explicit version requirement.
+
+Python is not required on an SSH destination: the engine runs on Omarchy and
+uses the destination's existing native tools. No dependencies are installed
+by the plugin.
+
 ## Status: v0.0.3 — M3 (three corners + the independence check)
 
 The data contract is the product law (PLAN.md, corrected 2026-09-30): **the
